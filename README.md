@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/illa-j/silent-ai/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/illa-j/silent-ai/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/illa-j/silent-ai/releases"><img alt="Release" src="https://img.shields.io/github/v/release/illa-j/silent-ai?include_prereleases&amp;sort=semver"></a>
+  <a href="https://github.com/illa-j/silent-ai/releases"><img alt="Release" src="https://img.shields.io/github/v/tag/illa-j/silent-ai?label=release&amp;sort=semver"></a>
   <img alt="Linux, Windows, macOS" src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-4c8dff">
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-green">
   <img alt="Rust 1.90+" src="https://img.shields.io/badge/Rust-1.90%2B-orange?logo=rust">
