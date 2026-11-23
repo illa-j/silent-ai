@@ -247,6 +247,34 @@
   .notes-hint { flex: 0 0 auto; font-size: 9px; color: var(--faint); }
   .notes-empty { color: var(--faint); font-style: italic; padding: 10px 2px; }
   .notes-rendered input[type="checkbox"] { accent-color: var(--accent); margin-right: 4px; }
+
+  .project-bar {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+    min-height: 27px; padding: 3px 6px; border-radius: 7px;
+    border: 1px solid var(--border); background: rgba(255,255,255,.025);
+  }
+  .project-bar.active {
+    border-color: rgba(101,214,255,.24); background: rgba(101,214,255,.055);
+  }
+  .project-pick { width: 25px; height: 21px; font-size: 12px; flex: 0 0 auto; }
+  .project-text { flex: 1; min-width: 0; line-height: 1.2; }
+  .project-label {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 10px; color: var(--muted);
+  }
+  .project-bar.active .project-label { color: var(--text); }
+  .project-meta {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    margin-top: 1px; font-size: 8.5px; color: var(--faint);
+  }
+  .project-badge {
+    flex: 0 0 auto; font-size: 8px; font-weight: 700; letter-spacing: .06em;
+    color: var(--faint); border: 1px solid var(--border); border-radius: 4px;
+    padding: 1px 3px;
+  }
+  .project-bar.active .project-badge { color: var(--accent); border-color: rgba(101,214,255,.3); }
+  .project-clear { width: 19px; height: 19px; padding: 0; font-size: 12px; flex: 0 0 auto; }
+  .project-clear[hidden] { display: none; }
   .view[hidden], #notesEditor[hidden], #notesPreview[hidden], .note-format[hidden] { display: none; }
 </style>
 </head>
@@ -279,6 +307,15 @@
 
   <main>
     <div id="chatView" class="view chat-view">
+    <div class="project-bar" id="projectBar" title="Текст вибраної папки надсилається LLM як контекст">
+      <button id="projectPickBtn" class="project-pick" title="Обрати папку проєкту">📁</button>
+      <div class="project-text">
+        <div class="project-label" id="projectLabel">Проєкт не вибрано</div>
+        <div class="project-meta" id="projectMeta">контекст проєкту не надсилається</div>
+      </div>
+      <span class="project-badge">AI</span>
+      <button id="projectClearBtn" class="project-clear" title="Прибрати контекст проєкту" hidden>×</button>
+    </div>
     <div id="chat" class="chat" aria-live="polite">
       <div class="chat-empty" id="chatEmpty">Тут з’являться слова викладача та відповіді.</div>
     </div>
@@ -348,6 +385,9 @@
     manualForm: el("manualForm"), manualInput: el("manualInput"), toast: el("toast"),
     pauseBtn: el("pauseBtn"), regenBtn: el("regenBtn"), closeBtn: el("closeBtn"), copyBtn: el("copyBtn"),
     hideBtn: el("hideBtn"), keyBtn: el("keyBtn"),
+    projectBar: el("projectBar"), projectPickBtn: el("projectPickBtn"),
+    projectLabel: el("projectLabel"), projectMeta: el("projectMeta"),
+    projectClearBtn: el("projectClearBtn"),
     tabChat: el("tabChat"), tabNotes: el("tabNotes"), chatView: el("chatView"), notesView: el("notesView"),
     notesStatus: el("notesStatus"), notesEditBtn: el("notesEditBtn"), notesPreviewBtn: el("notesPreviewBtn"),
     noteFormat: el("noteFormat"), notesEditor: el("notesEditor"), notesPreview: el("notesPreview"),
@@ -373,6 +413,7 @@
     notesMode: "preview",
     notesDirty: false,
     notesTimer: null,
+    project: null,
   };
 
   const fmt = (ms) => {
@@ -577,6 +618,49 @@
     ui.toast.classList.add("show");
     clearTimeout(showToast._t);
     showToast._t = setTimeout(() => ui.toast.classList.remove("show"), ms);
+  }
+
+  function setProject(info) {
+    state.project = info || null;
+    if (!info) {
+      ui.projectBar.classList.remove("active");
+      ui.projectLabel.textContent = "Проєкт не вибрано";
+      ui.projectMeta.textContent = "контекст проєкту не надсилається";
+      ui.projectBar.title = "Обрати папку проєкту, щоб надсилати її AI як контекст";
+      ui.projectClearBtn.hidden = true;
+      return;
+    }
+    const chars = info.chars >= 1000 ? `${(info.chars / 1000).toFixed(1)}k` : String(info.chars);
+    ui.projectBar.classList.add("active");
+    ui.projectLabel.textContent = info.name || "Проєкт";
+    ui.projectMeta.textContent = `${info.files} файлів · ${chars} символів${info.truncated ? " · обрізано" : ""} · надсилається AI`;
+    ui.projectBar.title = info.path || "";
+    ui.projectClearBtn.hidden = false;
+  }
+
+  async function pickProject() {
+    try {
+      const path = await invoke("pick_project_folder");
+      if (!path) return;
+      ui.projectMeta.textContent = "сканую папку…";
+      const info = await invoke("set_project_folder", { path });
+      setProject(info);
+      showToast(`Проєкт: ${info.name} · ${info.files} файлів`);
+    } catch (err) {
+      setProject(state.project);
+      ui.error.textContent = String(err);
+      showToast("Не вдалося прочитати папку", 2200, true);
+    }
+  }
+
+  async function clearProject() {
+    try {
+      await invoke("clear_project");
+      setProject(null);
+      showToast("Контекст проєкту прибрано");
+    } catch (err) {
+      ui.error.textContent = String(err);
+    }
   }
 
   function setNotesStatus(text) {
@@ -804,6 +888,7 @@
     }
     state.model = payload.model || "";
     state.backend = payload.backend || "";
+    if ("project" in payload) setProject(payload.project);
     const opacity = payload.ui?.opacity;
     if (typeof opacity === "number" && opacity > 0.2 && opacity <= 1) {
       document.getElementById("app").style.opacity = String(opacity);
@@ -1013,6 +1098,9 @@
     const button = event.target.closest("button[data-md]");
     if (button) insertFormat(button.dataset.md);
   });
+
+  ui.projectPickBtn.addEventListener("click", pickProject);
+  ui.projectClearBtn.addEventListener("click", clearProject);
 
   ui.keyBtn.addEventListener("click", showManual);
 

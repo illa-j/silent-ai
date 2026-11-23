@@ -51,6 +51,9 @@ jobs:
       - name: Mock LLM integration test
         run: cargo test -p silent-ai-core --features test-support --test llm_no_question
 
+      - name: Project context integration test
+        run: cargo test -p silent-ai-core --test llm_project_context
+
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 

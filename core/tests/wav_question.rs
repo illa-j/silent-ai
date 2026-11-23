@@ -67,6 +67,7 @@ async fn wav_question_gets_an_answer() {
         events_tx,
         commands_rx,
         cancel.clone(),
+        String::new(),
     ));
 
     let collection = tokio::time::timeout(Duration::from_secs(30), async {

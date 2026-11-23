@@ -10,9 +10,11 @@ use std::time::Duration;
 use clap::Parser;
 use serde::Serialize;
 use silent_ai_core::audio::{CpalSource, format_device_list, list_devices};
-use silent_ai_core::config::{Config, UiConfig};
+use silent_ai_core::config::{Config, ProjectConfig, UiConfig};
 use silent_ai_core::pipeline::{self, Command, PipelineEvent, UiState};
+use silent_ai_core::project::{self, ProjectContext};
 use tauri::{Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -234,12 +236,16 @@ fn run_headless(config: Config) -> anyhow::Result<()> {
         let cancel = CancellationToken::new();
         let source = CpalSource::new(config.audio.clone());
         let root = cancel.clone();
+        let project_context = load_saved_project(&config.project)
+            .map(|context| context.text)
+            .unwrap_or_default();
         let mut pipeline_task = tokio::spawn(pipeline::run(
             config,
             Box::new(source),
             events_tx,
             commands_rx,
             root,
+            project_context,
         ));
 
         loop {
@@ -351,9 +357,37 @@ fn print_headless_event(event: &PipelineEvent) {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct ProjectInfo {
+    path: String,
+    name: String,
+    files: usize,
+    chars: usize,
+    truncated: bool,
+}
+
+impl From<&ProjectContext> for ProjectInfo {
+    fn from(context: &ProjectContext) -> Self {
+        Self {
+            path: context.root.display().to_string(),
+            name: context.name.clone(),
+            files: context.files,
+            chars: context.chars,
+            truncated: context.truncated,
+        }
+    }
+}
+
+#[derive(Default)]
+struct ProjectRuntime {
+    info: Option<ProjectInfo>,
+    context: String,
+}
+
 struct AppState {
     config: Config,
     commands: StdMutex<Option<mpsc::Sender<Command>>>,
+    project: StdMutex<ProjectRuntime>,
     paused: AtomicBool,
     cancel: CancellationToken,
     started: AtomicBool,
@@ -362,16 +396,53 @@ struct AppState {
 }
 
 impl AppState {
-    fn new(config: Config) -> Self {
+    fn new(config: Config, project: Option<ProjectContext>) -> Self {
+        let project = project.map_or_else(ProjectRuntime::default, |context| ProjectRuntime {
+            info: Some(ProjectInfo::from(&context)),
+            context: context.text,
+        });
         Self {
             config,
             commands: StdMutex::new(None),
+            project: StdMutex::new(project),
             paused: AtomicBool::new(false),
             cancel: CancellationToken::new(),
             started: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             pipeline_done: Arc::new(tokio::sync::Notify::new()),
         }
+    }
+
+    fn project_snapshot(&self) -> (Option<ProjectInfo>, String) {
+        let guard = self
+            .project
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (guard.info.clone(), guard.context.clone())
+    }
+
+    fn set_project(&self, context: Option<ProjectContext>) -> Option<ProjectInfo> {
+        let (info, text) = {
+            let mut guard = self
+                .project
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            match context {
+                Some(context) => {
+                    let info = ProjectInfo::from(&context);
+                    guard.info = Some(info.clone());
+                    guard.context = context.text;
+                    (Some(info), guard.context.clone())
+                }
+                None => {
+                    guard.info = None;
+                    guard.context.clear();
+                    (None, String::new())
+                }
+            }
+        };
+        let _ = self.send(Command::SetProjectContext(text));
+        info
     }
 
     fn send(&self, command: Command) -> Result<(), String> {
@@ -386,11 +457,62 @@ impl AppState {
     }
 }
 
-fn notes_path() -> PathBuf {
+fn silent_ai_data_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from(".local/share"))
         .join("silent-ai")
-        .join("notes.md")
+}
+
+fn notes_path() -> PathBuf {
+    silent_ai_data_dir().join("notes.md")
+}
+
+fn project_path_file() -> PathBuf {
+    silent_ai_data_dir().join("project_path")
+}
+
+fn load_saved_project(config: &ProjectConfig) -> Option<ProjectContext> {
+    let raw = std::fs::read_to_string(project_path_file()).ok()?;
+    let path = PathBuf::from(raw.trim());
+    if path.as_os_str().is_empty() {
+        return None;
+    }
+    if !path.is_dir() {
+        tracing::warn!(path = %path.display(), "saved project folder no longer exists");
+        return None;
+    }
+    match project::scan_project(&path, config) {
+        Ok(context) => {
+            tracing::info!(
+                path = %context.root.display(),
+                files = context.files,
+                chars = context.chars,
+                truncated = context.truncated,
+                "loaded saved project context"
+            );
+            Some(context)
+        }
+        Err(err) => {
+            tracing::warn!(%err, path = %path.display(), "cannot scan saved project");
+            None
+        }
+    }
+}
+
+fn save_project_path(path: &std::path::Path) -> Result<(), String> {
+    let file = project_path_file();
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("cannot create project state dir: {err}"))?;
+    }
+    std::fs::write(&file, path.to_string_lossy().as_bytes())
+        .map_err(|err| format!("cannot save project path: {err}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -420,19 +542,66 @@ fn save_notes(text: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn pick_project_folder(app: tauri::AppHandle) -> Option<String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let mut dialog = app.dialog().file();
+    if let Some(window) = app.get_webview_window("main") {
+        dialog = dialog.set_parent(&window);
+    }
+    dialog.pick_folder(move |path| {
+        let _ = tx.send(path);
+    });
+    let folder = rx.await.ok().flatten()?;
+    folder
+        .into_path()
+        .ok()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+async fn set_project_folder(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<ProjectInfo, String> {
+    let path = PathBuf::from(path);
+    if !path.is_dir() {
+        return Err(format!("not a folder: {}", path.display()));
+    }
+    let scan_config = state.config.project.clone();
+    let context = tokio::task::spawn_blocking(move || project::scan_project(&path, &scan_config))
+        .await
+        .map_err(|err| format!("project scan task failed: {err}"))?
+        .map_err(|err| format!("cannot scan project: {err:#}"))?;
+    save_project_path(&context.root)?;
+    let info = ProjectInfo::from(&context);
+    state.set_project(Some(context));
+    Ok(info)
+}
+
+#[tauri::command]
+fn clear_project(state: State<'_, AppState>) -> Result<(), String> {
+    let _ = std::fs::remove_file(project_path_file());
+    state.set_project(None);
+    Ok(())
+}
+
 #[derive(Serialize)]
 struct Bootstrap {
     budgets: silent_ai_core::config::BudgetConfig,
     hotkeys: silent_ai_core::config::HotkeyConfig,
     ui: silent_ai_core::config::UiConfig,
+    project: Option<ProjectInfo>,
 }
 
 #[tauri::command]
 fn bootstrap(state: State<'_, AppState>) -> Bootstrap {
+    let (project, _) = state.project_snapshot();
     Bootstrap {
         budgets: state.config.budgets.clone(),
         hotkeys: state.config.hotkeys.clone(),
         ui: state.config.ui.clone(),
+        project,
     }
 }
 
@@ -528,9 +697,17 @@ fn start_pipeline(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(
     let error_tx = events_tx.clone();
     let pipeline_app = app.clone();
     let source = CpalSource::new(config.audio.clone());
+    let (_, project_context) = state.project_snapshot();
     tauri::async_runtime::spawn(async move {
-        if let Err(err) =
-            pipeline::run(config, Box::new(source), events_tx, commands_rx, cancel).await
+        if let Err(err) = pipeline::run(
+            config,
+            Box::new(source),
+            events_tx,
+            commands_rx,
+            cancel,
+            project_context,
+        )
+        .await
         {
             tracing::error!(%err, "pipeline stopped");
             let _ = error_tx
@@ -602,12 +779,14 @@ fn configure_linux_backend(_ui: &UiConfig) -> Option<LinuxBackendNote> {
 }
 
 fn run_gui(config: Config) -> anyhow::Result<()> {
-    let state = AppState::new(config.clone());
+    let project = load_saved_project(&config.project);
+    let state = AppState::new(config.clone(), project);
     let shortcut_config = config.hotkeys.clone();
     let ui_config = config.ui.clone();
     let stealth_config = config.stealth.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
@@ -618,7 +797,10 @@ fn run_gui(config: Config) -> anyhow::Result<()> {
             ask_manual,
             report_ui_latency,
             load_notes,
-            save_notes
+            save_notes,
+            pick_project_folder,
+            set_project_folder,
+            clear_project
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {

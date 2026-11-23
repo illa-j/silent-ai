@@ -37,6 +37,7 @@ configures.
 - Local Whisper inference does not require a network after the model is
   downloaded.
 - Notes: `~/.local/share/silent-ai/notes.md` (or the platform equivalent).
+- Selected project path: `~/.local/share/silent-ai/project_path`.
 - Transcript log: `~/.local/share/silent-ai/transcripts/` when
   `logging.transcript = true`.
 - Logs: `~/.local/share/silent-ai/logs/`.
@@ -45,8 +46,11 @@ configures.
 
 ### Can leave the machine
 
-- **LLM provider:** the latest transcript, the configured history window, and
-  the system prompt are sent to `llm.base_url`.
+- **LLM provider:** the latest transcript, the configured history window, the
+  system prompt, and the text of the selected project folder are sent to
+  `llm.base_url`. The folder scanner skips binaries, lockfiles, common build
+  directories, and obvious secret files, but it cannot detect a secret
+  hardcoded in a source file. Review the project before selecting it.
 - **Deepgram (optional):** audio streams to Deepgram when
   `stt.backend = "deepgram"` and the feature is compiled in.
 - **Model download:** the first Whisper launch downloads the model from the

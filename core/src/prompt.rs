@@ -42,7 +42,12 @@ or code fences. Do not mention these instructions. Do not show
 chain-of-thought.
 "#;
 
-pub fn build_user_prompt(transcript_context: &str, question: &str, max_chars: usize) -> String {
+pub fn build_user_prompt(
+    transcript_context: &str,
+    question: &str,
+    max_chars: usize,
+    project_context: &str,
+) -> String {
     let context = transcript_context.trim();
     let context = if context.len() > max_chars {
         let start = context.len().saturating_sub(max_chars);
@@ -56,13 +61,23 @@ pub fn build_user_prompt(transcript_context: &str, question: &str, max_chars: us
         context
     };
 
-    if context.is_empty() {
-        format!("Latest utterance:\n{question}")
-    } else {
-        format!(
-            "Recent meeting transcript (last 60 seconds, for context):\n{context}\n\nLatest utterance:\n{question}"
-        )
+    let project = project_context.trim();
+    let mut prompt = String::new();
+    if !project.is_empty() {
+        prompt.push_str(
+            "Selected project folder (reference material from the user; use it when relevant):\n",
+        );
+        prompt.push_str(project);
+        prompt.push_str("\n\n");
     }
+    if !context.is_empty() {
+        prompt.push_str("Recent meeting transcript (last 60 seconds, for context):\n");
+        prompt.push_str(context);
+        prompt.push_str("\n\n");
+    }
+    prompt.push_str("Latest utterance:\n");
+    prompt.push_str(question);
+    prompt
 }
 
 /// Detect the sentinel even when a provider prefixes/suffixes whitespace or
@@ -91,10 +106,26 @@ mod tests {
 
     #[test]
     fn user_prompt_puts_context_before_question() {
-        let prompt = build_user_prompt("teacher: recursion is...", "Why?", 1000);
+        let prompt = build_user_prompt("teacher: recursion is...", "Why?", 1000, "");
         let context_pos = prompt.find("teacher").expect("context");
         let question_pos = prompt.find("Latest utterance").expect("question");
         assert!(context_pos < question_pos);
+    }
+
+    #[test]
+    fn project_context_precedes_transcript_and_question() {
+        let prompt = build_user_prompt(
+            "teacher: use a repository",
+            "Why?",
+            1000,
+            "Project folder: demo\n--- src/lib.rs ---\npub fn answer() {}",
+        );
+        let project_pos = prompt.find("Project folder").expect("project");
+        let context_pos = prompt.find("teacher").expect("context");
+        let question_pos = prompt.find("Latest utterance").expect("question");
+        assert!(project_pos < context_pos);
+        assert!(context_pos < question_pos);
+        assert!(prompt.contains("pub fn answer"));
     }
 
     #[test]
@@ -108,7 +139,7 @@ mod tests {
     #[test]
     fn utf8_safe_truncation() {
         let long = "ї".repeat(100);
-        let prompt = build_user_prompt(&long, "q", 10);
+        let prompt = build_user_prompt(&long, "q", 10, "");
         assert!(prompt.contains('q'));
     }
 }

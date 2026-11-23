@@ -11,6 +11,7 @@ pub struct Config {
     pub vad: VadConfig,
     pub stt: SttConfig,
     pub llm: LlmConfig,
+    pub project: ProjectConfig,
     pub detector: DetectorConfig,
     pub budgets: BudgetConfig,
     pub hotkeys: HotkeyConfig,
@@ -279,6 +280,36 @@ pub struct LlmConfig {
     /// Extra JSON merged into the request body. Set provider-specific switches
     /// here, e.g. `{ "reasoning_effort": "none" }`.
     pub extra_body: serde_json::Value,
+}
+
+/// Limits for the optional project folder that is sent to the LLM as reference
+/// material. Only text-like files are read; binaries, secrets, and common
+/// build directories are skipped.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct ProjectConfig {
+    /// Maximum number of files whose contents are included.
+    pub max_files: usize,
+    /// Files larger than this are skipped.
+    pub max_file_bytes: u64,
+    /// Maximum total characters of project context.
+    pub max_chars: usize,
+    /// Include dotfiles and directories such as `.github`.
+    pub include_hidden: bool,
+    /// Extra directory names to skip, in addition to the built-in list.
+    pub exclude_dirs: Vec<String>,
+}
+
+impl Default for ProjectConfig {
+    fn default() -> Self {
+        Self {
+            max_files: 80,
+            max_file_bytes: 64 * 1024,
+            max_chars: 48_000,
+            include_hidden: false,
+            exclude_dirs: Vec::new(),
+        }
+    }
 }
 
 impl Default for LlmConfig {
@@ -688,6 +719,15 @@ impl Config {
         if !(0.1..=1.0).contains(&self.detector.similarity_threshold) {
             return err("detector.similarity_threshold must be in 0.1..=1.0");
         }
+        if self.project.max_files == 0 || self.project.max_files > 500 {
+            return err("project.max_files must be between 1 and 500");
+        }
+        if !(1_024..=10 * 1024 * 1024).contains(&self.project.max_file_bytes) {
+            return err("project.max_file_bytes must be between 1024 and 10485760");
+        }
+        if !(1_000..=400_000).contains(&self.project.max_chars) {
+            return err("project.max_chars must be between 1000 and 400000");
+        }
         if !(250..=10_000).contains(&self.stealth.screen_share_poll_ms) {
             return err("stealth.screen_share_poll_ms must be between 250 and 10000");
         }
@@ -974,6 +1014,16 @@ mod tests {
         assert_eq!(config.vad.silence_ms, defaults.vad.silence_ms);
         assert_eq!(config.detector.send_all, defaults.detector.send_all);
         assert_eq!(config.budgets.vad_ms, defaults.budgets.vad_ms);
+        assert_eq!(config.project.max_files, defaults.project.max_files);
+        assert_eq!(
+            config.project.max_file_bytes,
+            defaults.project.max_file_bytes
+        );
+        assert_eq!(config.project.max_chars, defaults.project.max_chars);
+        assert_eq!(
+            config.project.include_hidden,
+            defaults.project.include_hidden
+        );
     }
 
     #[test]

@@ -38,6 +38,7 @@ Use a clean CPU build; this is what the GitHub workflow ships.
 cargo fmt --all -- --check
 cargo test -p silent-ai-core --lib --features deepgram
 cargo test -p silent-ai-core --features test-support --test llm_no_question
+cargo test -p silent-ai-core --test llm_project_context
 cargo clippy --workspace --all-targets -- -D warnings
 cargo check -p silent-ai-app
 cargo build -p silent-ai-app --release

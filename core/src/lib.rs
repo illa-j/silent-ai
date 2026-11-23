@@ -10,6 +10,7 @@ pub mod metrics;
 #[cfg(feature = "test-support")]
 pub mod mock_llm;
 pub mod pipeline;
+pub mod project;
 pub mod prompt;
 pub mod stt;
 pub mod vad;

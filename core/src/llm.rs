@@ -17,6 +17,8 @@ pub struct LlmRequest {
     pub id: u64,
     pub question: String,
     pub transcript: String,
+    /// Optional project-folder context selected by the user.
+    pub project: String,
     /// Epoch milliseconds captured when the question ended; informs the UI's
     /// end-to-end latency calculation.
     pub speech_end_epoch_ms: u64,
@@ -145,6 +147,7 @@ impl LlmClient {
             &request.transcript,
             &request.question,
             self.config.max_history_chars,
+            &request.project,
         );
         let system_prompt = if self.config.answer_all {
             ANSWER_ALL_PROMPT

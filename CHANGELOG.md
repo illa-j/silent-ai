@@ -7,6 +7,17 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Optional project-folder context for the LLM. The chat toolbar can select a
+  local source folder, scan its text files with safe defaults, and include the
+  selected project block in every voice or manual question. The selected path
+  is remembered across launches and can be cleared from the toolbar.
+- `[project]` configuration for file count, per-file size, total character
+  budget, hidden files, and additional excluded directories.
+- Project scanner that skips binaries, lockfiles, `.git`, `target`,
+  `node_modules`, build output, hidden files, and obvious secret files.
+
 ## [0.1.0] - 2026-11-23
 
 First public release.

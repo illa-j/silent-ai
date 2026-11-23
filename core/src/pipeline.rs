@@ -97,6 +97,7 @@ pub enum Command {
     Resume,
     Regenerate,
     AskManual(String),
+    SetProjectContext(String),
     Shutdown,
 }
 
@@ -279,6 +280,7 @@ struct Runtime {
     paused_flag: Arc<AtomicBool>,
     segment_id: u64,
     partial_text: String,
+    project_context: String,
     root_cancel: CancellationToken,
 }
 
@@ -289,6 +291,7 @@ impl Runtime {
         llm_tx: mpsc::UnboundedSender<LlmEvent>,
         root_cancel: CancellationToken,
         paused_flag: Arc<AtomicBool>,
+        project_context: String,
     ) -> Self {
         let detector = QuestionDetector::new(&config.detector);
         let history = History::new(
@@ -311,6 +314,7 @@ impl Runtime {
             paused_flag,
             segment_id: 0,
             partial_text: String::new(),
+            project_context,
             root_cancel,
         }
     }
@@ -378,6 +382,7 @@ impl Runtime {
             id,
             question: question.clone(),
             transcript: context,
+            project: self.project_context.clone(),
             speech_end_epoch_ms: timing.speech_end_epoch_ms,
         };
         client.spawn(request, self.llm_tx.clone(), cancel.clone());
@@ -894,6 +899,7 @@ pub async fn run(
     events: mpsc::Sender<PipelineEvent>,
     mut commands: mpsc::Receiver<Command>,
     root_cancel: CancellationToken,
+    project_context: String,
 ) -> Result<()> {
     let mut config = config;
     config.normalize();
@@ -913,6 +919,12 @@ pub async fn run(
             config.stt.backend = SttBackend::Whisper;
         }
     }
+    if !project_context.is_empty() {
+        tracing::info!(
+            chars = project_context.chars().count(),
+            "project context enabled"
+        );
+    }
     let paused_flag = Arc::new(AtomicBool::new(false));
     let (llm_tx, mut llm_rx) = mpsc::unbounded_channel();
     let mut runtime = Runtime::new(
@@ -921,6 +933,7 @@ pub async fn run(
         llm_tx,
         root_cancel.clone(),
         paused_flag.clone(),
+        project_context,
     );
 
     runtime
@@ -1228,6 +1241,13 @@ pub async fn run(
                     Some(Command::Resume) => runtime.resume().await,
                     Some(Command::Regenerate) => runtime.regenerate().await,
                     Some(Command::AskManual(text)) => runtime.ask_manual(text).await,
+                    Some(Command::SetProjectContext(context)) => {
+                        tracing::info!(
+                            chars = context.chars().count(),
+                            "project context updated"
+                        );
+                        runtime.project_context = context;
+                    }
                     Some(Command::Shutdown) | None => break,
                 }
             }

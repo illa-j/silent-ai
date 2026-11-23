@@ -22,6 +22,7 @@ async fn no_question_is_never_rendered() {
             id: 7,
             question: "Can you hear me?".to_owned(),
             transcript: String::new(),
+            project: String::new(),
             speech_end_epoch_ms: 0,
         },
         tx,

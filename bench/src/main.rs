@@ -124,7 +124,14 @@ async fn main() -> anyhow::Result<()> {
     let (commands_tx, commands_rx) = mpsc::channel(8);
     let cancel = CancellationToken::new();
     let root = cancel.clone();
-    let mut pipeline = tokio::spawn(pipeline::run(config, source, events_tx, commands_rx, root));
+    let mut pipeline = tokio::spawn(pipeline::run(
+        config,
+        source,
+        events_tx,
+        commands_rx,
+        root,
+        String::new(),
+    ));
 
     let deadline = tokio::time::sleep(Duration::from_secs(args.timeout_secs.max(5)));
     tokio::pin!(deadline);
