@@ -1,0 +1,54 @@
+[package]
+name = "silent-ai-core"
+description = "Cross-platform low-latency meeting copilot core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+repository.workspace = true
+
+[lib]
+name = "silent_ai_core"
+path = "src/lib.rs"
+
+[features]
+default = []
+# Use the native PipeWire host instead of PipeWire's PulseAudio compatibility.
+# Requires libpipewire-0.3-dev + libclang at build time.
+native-pipewire = ["cpal/pipewire"]
+deepgram = ["dep:tokio-tungstenite"]
+cuda = ["whisper-rs/cuda"]
+metal = ["whisper-rs/metal"]
+coreml = ["whisper-rs/coreml"]
+vulkan = ["whisper-rs/vulkan"]
+test-support = []
+
+[dependencies]
+anyhow.workspace = true
+dirs.workspace = true
+eventsource-stream.workspace = true
+futures-util.workspace = true
+hound.workspace = true
+num_cpus.workspace = true
+reqwest.workspace = true
+ringbuf = "0.6.0"
+rubato = "5.1.0"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+toml.workspace = true
+tracing.workspace = true
+whisper-rs = { version = "0.16.0", features = ["tracing_backend"] }
+webrtc-vad = "0.4.0"
+tokio-tungstenite = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cpal = { version = "0.18.2", features = ["pulseaudio"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+cpal = "0.18.2"

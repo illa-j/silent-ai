@@ -1,0 +1,4 @@
+[env]
+# Keep the macOS deployment target aligned with bundle.macOS.minimumSystemVersion.
+# Ignored by Windows/Linux builds.
+MACOSX_DEPLOYMENT_TARGET = "13.0"

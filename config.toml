@@ -1,0 +1,271 @@
+# Silent AI — configuration.
+#
+# This tracked file is the public, CPU-friendly default. It is loaded when no
+# ./config.local.toml exists. Put GPU, Deepgram, or personal settings in
+# ./config.local.toml (gitignored); that file takes priority over this one.
+#
+# Targets on clean system audio:
+#   speech end → VAD endpoint ~700 ms (600 ms silence + one frame)
+#   final Whisper transcription ≤ 300 ms on a modern 8-core CPU
+#   LLM request → first token ≤ 600 ms with a fast non-reasoning model
+#   first token → painted UI ≤ 50 ms
+#   speech end → first painted words ≤ 1.5 s with speculation
+#
+# In this file a comment marks the default. Values are validated on startup.
+
+[audio]
+# "system" captures what Google Meet plays (recommended).
+# "microphone" captures a microphone (only useful when the teacher is in the room).
+mode = "system"
+# "auto", an ID from `silent-ai --list-devices`, a full name, or a unique substring.
+# Linux (default): select a PulseAudio "Monitor of ..." source; device = auto
+# picks the monitor of the current default sink. With --features native-pipewire,
+# PipeWire's "default_sink" capture device is used instead.
+# Windows: any playback device is used through WASAPI loopback.
+# macOS 14.6+: any playback device is used through a Core Audio process tap.
+# macOS 13–14.5: select a BlackHole 2ch input (see docs/audio-macos.md).
+device = "auto"
+# 0 / null keeps the device default. 48000 is the usual meeting rate.
+sample_rate = 48000
+# Lock-free buffer between the realtime callback and the resampling thread.
+ring_buffer_ms = 2000
+# The VAD and streaming pipeline are built around 20 ms frames. Keep this at 20.
+frame_ms = 20
+# Linux only: prefer the PipeWire host over ALSA when selecting a device.
+linux_prefer_pipewire = true
+
+[vad]
+# WebRTC VAD is used for the first pass; the energy fallback below catches clean
+# TTS/compressed audio that the classifier sometimes misses.
+# quality | low_bitrate | aggressive | very_aggressive
+webrtc_mode = "quality"
+# 600 ms of silence gives whole-question endpoints on real lecture audio.
+# The original 300 ms target was too aggressive and cut questions mid-thought.
+silence_ms = 600
+# Reject only very short clicks; 100 ms keeps short words ("так", "ну").
+min_speech_ms = 100
+# Audio kept before the first voiced frame so the first phoneme is not cut.
+pre_roll_ms = 400
+# Hard cap for one phrase; longer monologues are finalized at this length.
+# 10 s keeps a continuously talking teacher from producing very long STT jobs.
+max_segment_ms = 10000
+# Start requesting speculative partials after this much speech.
+# 700 ms lets the LLM start before a short question ends.
+partial_min_speech_ms = 700
+# Partial STT cadence. Short partials keep the final from waiting too long.
+partial_interval_ms = 800
+# Partials never exceed this window; finals always use the complete segment.
+partial_window_ms = 4000
+# Near-digital silence.
+min_rms_dbfs = -58.0
+# Clean system audio fallback: sustained energy above this is treated as speech.
+# Set to 0.0 to disable and rely on WebRTC VAD alone.
+energy_fallback_dbfs = -38.0
+
+[stt]
+# whisper = local (private, no network after model download)
+# deepgram = cloud WebSocket with interim results (build with --features deepgram)
+# Local GPU Whisper was more accurate and faster on the test lecture audio.
+# Set "deepgram" to try the free cloud credit instead.
+backend = "whisper"
+
+[stt.whisper]
+# Public CPU default: small-q5_1 is the speed/quality sweet spot. For a GPU
+# build use "large-v3-turbo-q5_0" or "distil-large-v3"; for weak CPUs try
+# "base-q5_1"; for maximum speed try "tiny-q5_1".
+model = "small-q5_1"
+# "~" is expanded. The file is <model_dir>/ggml-<model>.bin for model names.
+model_dir = "~/.cache/silent-ai/models"
+# Empty = the official whisper.cpp Hugging Face URL.
+model_url = ""
+# Explicit language is more accurate than auto, especially for Ukrainian:
+# short/noisy fragments are often misdetected as Polish or Slovak.
+# Use "ru" for Russian, "en" for English, or "auto" if the language changes.
+language = "uk"
+# Bias Whisper toward English programming terms instead of transliteration.
+initial_prompt = "Це лекція з програмування. Терміни англійською: class, object, instance, method, property, field, constructor, interface, inheritance, polymorphism, encapsulation, abstraction, composition, Singleton, factory, array, list, dictionary, stack, heap, thread, async, await, exception, reference, pointer, garbage collector, C#, .NET, Rust, Python."
+# 0 = physical core count.
+threads = 0
+# Set true only when whisper-rs is built with cuda/metal/coreml/vulkan and a
+# compatible GPU is present. CPU-only builds should keep this false.
+gpu = false
+# Flash attention is faster on supported GPUs; leave false for maximum portability.
+flash_attn = false
+# Download the ggml model on first launch with a progress event.
+download = true
+# Run a silent inference after loading so the first question does not pay for
+# lazy kernel/graph initialization.
+warmup = true
+# Greedy best_of=1 is the fastest sampler.
+greedy = true
+# Shrink whisper.cpp's encoder context to the audio length (floor 512 frames).
+adaptive_audio_ctx = true
+max_tokens = 256
+
+# Deterministic replacements after Whisper: ASR often transliterates English
+# terms into Ukrainian. Extend this table with your course terms.
+[stt.whisper.glossary]
+"сінгалтан" = "Singleton"
+"сінгалтон" = "Singleton"
+"сінглтон" = "Singleton"
+"синглтон" = "Singleton"
+"сі шарп" = "C#"
+"сі-шарп" = "C#"
+"c sharp" = "C#"
+"c-sharp" = "C#"
+"у сі" = "у C#"
+"паттерн" = "pattern"
+"патерн" = "pattern"
+"інтерфейс" = "interface"
+"интерфейс" = "interface"
+"інкапсуляція" = "encapsulation"
+"инкапсуляция" = "encapsulation"
+"поліморфізм" = "polymorphism"
+"успадкування" = "inheritance"
+"абстрактний клас" = "abstract class"
+"абстрактного класу" = "abstract class"
+"абстрактним класом" = "abstract class"
+"рефлексія" = "reflection"
+"рефлексії" = "reflection"
+"рефлексію" = "reflection"
+"властивість" = "property"
+"властивості" = "property"
+"властивістю" = "property"
+"конструктор" = "constructor"
+"конструктора" = "constructor"
+"конструктором" = "constructor"
+
+[stt.deepgram]
+api_key_env = "DEEPGRAM_API_KEY"
+# Put the key here if the app is launched from a desktop menu:
+#   printf '%s' 'KEY' > ~/.config/silent-ai/deepgram_key
+#   chmod 600 ~/.config/silent-ai/deepgram_key
+api_key_file = "~/.config/silent-ai/deepgram_key"
+model = "nova-3"
+language = "uk"
+# Domain terms: Nova-3 keyterm prompting boosts their recognition.
+keyterms = [
+  "рефлексія", "інкапсуляція", "поліморфізм", "успадкування",
+  "абстракція", "композиція", "інтерфейс", "властивість",
+  "делегат", "лямбда", "виняток", "багатопотоковість",
+  "C#", "C Sharp", "C-sharp", "Rust", "Python", "Singleton",
+  "interface", "abstract class", "encapsulation", "reflection", "property",
+]
+endpointing_ms = 500
+interim_results = true
+smart_format = true
+reconnect_delay_ms = 500
+
+[llm]
+# OpenAI-compatible endpoint. Examples:
+#   OpenCode Go:   https://opencode.ai/zen/go/v1   (Go subscription)
+#   OpenCode Zen:  https://opencode.ai/zen/v1      (pay-as-you-go credits)
+#   Ollama:        http://127.0.0.1:11434/v1
+#   OpenAI:        https://api.openai.com/v1
+base_url = "https://opencode.ai/zen/go/v1"
+# glm-5.3-flash: ~0.55–0.8 s TTFT on OpenCode Go and concise answers.
+# deepseek-v4.1-flash: stronger reasoning but ~0.9–1.6 s TTFT.
+model = "glm-5.3-flash"
+# The key is read from this environment variable, never from this file.
+# Leave empty for a local endpoint with no authentication.
+api_key_env = "OPENCODE_API_KEY"
+# Fallback when the app is launched without a shell environment (desktop
+# menu). The file must contain only the key; `~` is expanded. The built-in
+# default is <OS config dir>/silent-ai/api_key, for example:
+#   Linux:   ~/.config/silent-ai/api_key
+#   macOS:   ~/Library/Application Support/silent-ai/api_key
+#   Windows: %APPDATA%\silent-ai\api_key
+# Uncomment to override:
+# api_key_file = "~/.config/silent-ai/api_key"
+max_tokens = 4096
+# Always respond, including to statements/explanations (not only questions).
+answer_all = true
+temperature = 0.2
+# End-to-end request budget, including streaming.
+timeout_ms = 120000
+connect_timeout_ms = 2500
+# One retry for HTTP 429 / 5xx before any token is shown.
+retry_once = true
+retry_delay_ms = 250
+# Context passed before the question. The system prompt is kept first and
+# static so providers with prefix caching can reuse it.
+history_secs = 60
+max_history_chars = 4000
+# Warm DNS/TLS/HTTP2 with GET /models at startup.
+warmup = true
+# Extra fields merged into the JSON request body. DeepSeek V4.1 Flash reasons
+# by default, which adds ~0.5 s before the first answer token and eats into
+# max_tokens. `none` skips reasoning entirely — important for the latency
+# budget. Remove/change this for providers that use another switch.
+extra_body = { reasoning_effort = "none" }
+
+[detector]
+# Extra question words/phrases appended to the built-in Ukrainian/English/Russian lists.
+extra_question_words = []
+# Extra non-questions (substring match, normalized).
+ignore_phrases = []
+# Start speculating as soon as a partial looks like a question.
+speculative = true
+# Require this many words before spending an LLM request on a partial.
+speculation_min_words = 3
+# Send every final utterance to the LLM; it answers real questions and returns
+# NO_QUESTION for statements/logistics. Costs one request per phrase.
+send_all = true
+# One-word questions ("Why?") are valid; increase to 2 to reduce false starts.
+min_words = 1
+# Keep a speculative answer if the final transcript is at least this similar.
+similarity_threshold = 0.7
+
+[budgets]
+# 600 ms endpointing plus one frame; accuracy over the original 400 ms target.
+vad_ms = 700
+stt_ms = 300
+llm_ttft_ms = 600
+ui_ms = 50
+total_ms = 1500
+
+[stealth]
+# Keep the assistant out of Google Meet screen sharing.
+# Windows: WDA_EXCLUDEFROMCAPTURE (Win10 2004+), macOS: NSWindow.sharingType=.none.
+# Linux/GNOME Wayland: there is no per-window capture-exclusion API. The window
+# stays visible; share a browser tab/window in Meet instead of the entire
+# screen. Set auto_hide_on_screen_share = true only if you prefer it to vanish
+# locally during a share.
+#
+# KDE Plasma 6.6+: run scripts/install-kde-stealth.sh once. The KWin script
+# "silent-ai-stealth" excludes this window from ScreenCast while keeping it
+# visible locally, so no auto-hide or warning is needed.
+hide_from_capture = true
+auto_hide_on_screen_share = false
+notify_on_screen_share = false
+screen_share_poll_ms = 1500
+
+[hotkeys]
+# Global shortcuts. "CmdOrCtrl" maps to Command on macOS and Control elsewhere.
+toggle_pause = "CmdOrCtrl+Shift+Space"
+copy_answer = "CmdOrCtrl+Shift+C"
+regenerate = "CmdOrCtrl+Shift+R"
+manual_question = "CmdOrCtrl+Shift+Q"
+toggle_stealth = "CmdOrCtrl+Shift+H"
+
+[ui]
+always_on_top = true
+# Linux/Wayland: GNOME/KDE ignore keep-above for native Wayland windows, so the
+# GUI runs through XWayland to make always_on_top actually work. Set false to
+# keep native Wayland (window may not stay above other apps).
+force_x11_on_wayland = true
+width = 460
+height = 440
+# Applied to the translucent window surface (0.2–1.0).
+opacity = 0.94
+show_partial = true
+
+[logging]
+# error | warn | info | debug | trace
+level = "info"
+console = true
+file = true
+dir = "~/.local/share/silent-ai/logs"
+# Append every final teacher utterance to
+# ~/.local/share/silent-ai/transcripts/transcript.log.YYYY-MM-DD
+transcript = true

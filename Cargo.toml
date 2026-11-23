@@ -1,0 +1,46 @@
+[workspace]
+resolver = "3"
+members = ["core", "app", "bench"]
+# `cargo build --features cuda` at the repository root targets the desktop app.
+default-members = ["app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+authors = ["Silent AI contributors"]
+repository = "https://github.com/illa-j/silent-ai"
+keywords = ["whisper", "speech-to-text", "llm", "tauri", "meeting"]
+categories = ["multimedia::audio", "gui"]
+
+[workspace.dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.9", features = ["derive", "env"] }
+dirs = "7.0.0"
+eventsource-stream = "0.2.3"
+futures-util = "0.3.34"
+hound = "3.5.1"
+num_cpus = "1.17.0"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "http2", "json", "stream"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "fs", "io-util"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+tokio-util = "0.7.20"
+toml = "1.2.2"
+tracing = "0.1.44"
+tracing-appender = "0.2.5"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "time", "local-time"] }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = true
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.dev]
+opt-level = 1

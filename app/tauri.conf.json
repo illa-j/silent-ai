@@ -1,0 +1,63 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Silent AI",
+  "version": "0.1.0",
+  "identifier": "io.github.illa-j.silent-ai",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Silent AI",
+        "width": 460,
+        "height": 440,
+        "minWidth": 340,
+        "minHeight": 220,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "visible": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "infoPlist": "Info.plist"
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libasound2",
+          "libpipewire-0.3-0",
+          "pulseaudio-utils"
+        ]
+      }
+    },
+    "publisher": "Silent AI contributors",
+    "homepage": "https://github.com/illa-j/silent-ai",
+    "copyright": "Copyright (c) 2026 Silent AI contributors",
+    "category": "Education",
+    "shortDescription": "Low-latency meeting copilot with local Whisper and LLM answers.",
+    "longDescription": "Silent AI captures system audio, transcribes teacher speech locally with Whisper, answers through an OpenAI-compatible LLM, and keeps private Markdown notes."
+  }
+}

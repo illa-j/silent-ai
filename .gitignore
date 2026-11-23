@@ -1,0 +1,44 @@
+# Build output
+/target
+**/target
+
+# Local/personal configuration (GPU, provider, machine-specific settings)
+/config.local.toml
+/config.local.*
+.env
+.env.*
+*.pem
+*.p12
+
+# Logs and runtime data
+*.log
+*.part
+/silent-ai.log
+/notes.md
+/transcript*.log
+
+# Models and downloaded assets
+/models
+*.bin
+*.gguf
+
+# Packaged release artifacts
+/dist
+/release
+*.AppImage
+*.deb
+*.rpm
+*.dmg
+*.msi
+*.exe
+*.zip
+*.tar.gz
+*.sha256
+
+# Editors and OS files
+.DS_Store
+.vscode
+.idea
+
+# Tauri generated schema
+/app/gen

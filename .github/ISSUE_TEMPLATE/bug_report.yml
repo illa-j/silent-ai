@@ -1,0 +1,113 @@
+name: Bug report
+description: Report a crash, audio problem, wrong transcription, or UI issue.
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please remove API keys, personal paths, notes,
+        and confidential transcript text before submitting.
+
+        For security problems, use the private process at
+        https://github.com/illa-j/silent-ai/security/policy instead of a public
+        issue.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: A clear description of the problem and what you expected.
+      placeholder: Silent AI stops transcribing after the first answer...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start Silent AI
+        2. Join a Google Meet call
+        3. Ask a question
+        4. Observe...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Silent AI version
+      description: Shown in the release tag or `silent-ai --version`.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux — Fedora
+        - Linux — Ubuntu/Debian
+        - Linux — Arch
+        - Linux — other
+        - Windows 11
+        - Windows 10
+        - macOS 15+
+        - macOS 14
+        - macOS 13
+    validations:
+      required: true
+  - type: dropdown
+    id: session
+    attributes:
+      label: Desktop session
+      description: Linux only. Skip on Windows/macOS.
+      options:
+        - KDE Plasma Wayland
+        - GNOME Wayland
+        - Other Wayland
+        - X11
+        - Not applicable
+  - type: dropdown
+    id: stt
+    attributes:
+      label: Speech backend
+      options:
+        - Local Whisper
+        - Deepgram
+        - Not sure
+  - type: dropdown
+    id: build
+    attributes:
+      label: Build
+      options:
+        - GitHub release (CPU)
+        - Built from source (CPU)
+        - Built from source (CUDA)
+        - Built from source (Metal/CoreML/Vulkan)
+        - Built from source (Deepgram)
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant config
+      description: Redact the key name if needed. Do not paste an API key.
+      render: toml
+      placeholder: |
+        [audio]
+        mode = "system"
+        device = "auto"
+        [stt]
+        backend = "whisper"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Run with `--log-level debug` if possible. Remove personal data.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I removed API keys, tokens, and confidential transcript text.
+          required: true
+        - label: I searched existing issues for the same problem.
+          required: true

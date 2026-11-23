@@ -1,0 +1,48 @@
+[package]
+name = "silent-ai-app"
+description = "Silent AI — low-latency meeting copilot"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "silent-ai"
+path = "src/main.rs"
+
+[features]
+default = []
+native-pipewire = ["silent-ai-core/native-pipewire"]
+cuda = ["silent-ai-core/cuda"]
+metal = ["silent-ai-core/metal"]
+coreml = ["silent-ai-core/coreml"]
+vulkan = ["silent-ai-core/vulkan"]
+deepgram = ["silent-ai-core/deepgram"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dirs.workspace = true
+tauri = { version = "2.12.7", features = ["macos-private-api"] }
+tauri-plugin-global-shortcut = "2.4.1"
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-appender.workspace = true
+tracing-subscriber.workspace = true
+silent-ai-core = { path = "../core" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSWindow"] }

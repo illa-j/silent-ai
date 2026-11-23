@@ -1,0 +1,12 @@
+{
+  "KPackageStructure": "KWin/Script",
+  "KPlugin": {
+    "Id": "silent-ai-stealth",
+    "Name": "Silent AI - Hide from ScreenCast",
+    "Description": "Excludes the Silent AI window from KWin screen sharing and recording",
+    "Version": "1.0",
+    "License": "MIT",
+    "EnabledByDefault": true
+  },
+  "X-Plasma-API": "javascript"
+}

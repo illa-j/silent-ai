@@ -1,0 +1,34 @@
+[package]
+name = "silent-ai-bench"
+description = "Benchmarks for the Silent AI audio and transcription pipeline"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "silent-ai-bench"
+path = "src/main.rs"
+
+[features]
+default = []
+native-pipewire = ["silent-ai-core/native-pipewire"]
+cuda = ["silent-ai-core/cuda"]
+metal = ["silent-ai-core/metal"]
+coreml = ["silent-ai-core/coreml"]
+vulkan = ["silent-ai-core/vulkan"]
+deepgram = ["silent-ai-core/deepgram"]
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+silent-ai-core = { path = "../core", features = ["test-support"] }
