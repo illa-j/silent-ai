@@ -1,3 +1,5 @@
+use std::cell::Cell;
+use std::ffi::{CStr, c_char, c_void};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -6,7 +8,8 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use whisper_rs::{
-    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
+    FullParams, GGMLLogLevel, SamplingStrategy, WhisperContext, WhisperContextParameters,
+    WhisperState,
 };
 
 use super::{JobKind, SttEvent, SttJob, SttResult, clean_transcript};
@@ -114,7 +117,7 @@ fn run_worker(
     cancel: CancellationToken,
     preempt: Arc<AtomicBool>,
 ) {
-    whisper_rs::install_logging_hooks();
+    install_whisper_log_filter();
     let _ = events.blocking_send(SttEvent::Loading {
         stage: "loading Whisper model".to_owned(),
     });
@@ -218,13 +221,15 @@ fn run_worker(
         }
         tracing::debug!(id = job.id, kind = ?job.kind, samples = job.audio.len(), "Whisper job received");
 
+        // Clear the preempt flag before the short-job check so a skipped final
+        // cannot leave every following partial aborted.
+        if job.kind == JobKind::Final {
+            preempt.store(false, Ordering::SeqCst);
+        }
+
         if job.audio.len() < 1_600 {
             tracing::debug!(id = job.id, "skipping STT job shorter than 100 ms");
             continue;
-        }
-
-        if job.kind == JobKind::Final {
-            preempt.store(false, Ordering::SeqCst);
         }
 
         // Use a detected language for this job even before it is locked. Lock
@@ -326,6 +331,63 @@ fn run_worker(
     tracing::debug!("Whisper worker stopped");
 }
 
+thread_local! {
+    /// Set while a partial is being encoded. When `preempt` flips during that
+    /// inference, whisper.cpp reports the deliberate abort as
+    /// `failed to encode` at ERROR level; the log filter uses this pointer to
+    /// demote that expected message instead of treating it as a failure.
+    static ACTIVE_PARTIAL_PREEMPT: Cell<*mut AtomicBool> = const { Cell::new(std::ptr::null_mut()) };
+}
+
+fn install_whisper_log_filter() {
+    // Keep whisper-rs' ggml hook, then replace its whisper.cpp hook with one
+    // that understands an expected partial cancellation.
+    whisper_rs::install_logging_hooks();
+    // SAFETY: the callback only reads a pointer that is set for the duration
+    // of `WhisperState::full`; whisper.cpp invokes logs synchronously.
+    unsafe {
+        whisper_rs::set_log_callback(Some(whisper_log_callback), std::ptr::null_mut());
+    }
+}
+
+unsafe extern "C" fn whisper_log_callback(
+    level: u32,
+    text: *const c_char,
+    _user_data: *mut c_void,
+) {
+    if text.is_null() {
+        return;
+    }
+    let message = unsafe { CStr::from_ptr(text) }.to_string_lossy();
+    let message = message.trim();
+    if message.contains("failed to encode") {
+        let preempt = ACTIVE_PARTIAL_PREEMPT.with(Cell::get);
+        // SAFETY: while a partial is running, the pointer refers to the
+        // worker's live `preempt` atomic; it is cleared right after `full`.
+        if !preempt.is_null() && unsafe { (*preempt).load(Ordering::Relaxed) } {
+            tracing::debug!("whisper.cpp encode stopped for an expected partial preempt");
+            return;
+        }
+    }
+    match GGMLLogLevel::from(level) {
+        GGMLLogLevel::Error => {
+            tracing::error!(target: "whisper_rs::whisper_logging_hook", "{message}")
+        }
+        GGMLLogLevel::Warn => {
+            tracing::warn!(target: "whisper_rs::whisper_logging_hook", "{message}")
+        }
+        GGMLLogLevel::Info => {
+            tracing::info!(target: "whisper_rs::whisper_logging_hook", "{message}")
+        }
+        GGMLLogLevel::Debug => {
+            tracing::debug!(target: "whisper_rs::whisper_logging_hook", "{message}")
+        }
+        GGMLLogLevel::None | GGMLLogLevel::Cont | GGMLLogLevel::Unknown(_) => {
+            tracing::trace!(target: "whisper_rs::whisper_logging_hook", "{message}")
+        }
+    }
+}
+
 fn run_inference(
     state: &mut WhisperState,
     audio: &[f32],
@@ -406,8 +468,18 @@ fn run_inference(
         );
     }
 
-    state.full(params, audio)?;
+    // Set this for every inference so a previous partial can never leave a
+    // stale pointer behind; finals set it to null explicitly.
+    let preempt_ptr = if kind == JobKind::Partial {
+        Arc::as_ptr(preempt) as *mut AtomicBool
+    } else {
+        std::ptr::null_mut()
+    };
+    ACTIVE_PARTIAL_PREEMPT.with(|slot| slot.set(preempt_ptr));
+    let inference = state.full(params, audio);
+    ACTIVE_PARTIAL_PREEMPT.with(|slot| slot.set(std::ptr::null_mut()));
     drop(abort_state);
+    inference?;
 
     let mut text = String::new();
     for segment in state.as_iter() {

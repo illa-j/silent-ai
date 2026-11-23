@@ -94,6 +94,36 @@ pub fn strip_no_question(text: &str) -> &str {
         .trim_start()
 }
 
+/// Extra system instruction that pins the answer language.
+///
+/// `auto` keeps the default "answer in the language of the utterance"
+/// behaviour. A language code or English name pins the reply language while
+/// leaving the rest of the static prompt untouched, so prefix caching still
+/// works.
+pub fn answer_language_instruction(language: &str) -> Option<String> {
+    let language = language.trim().to_ascii_lowercase();
+    if language.is_empty() || language == "auto" {
+        return None;
+    }
+    let primary = language
+        .split(['-', '_'])
+        .next()
+        .unwrap_or(language.as_str());
+    let name = match primary {
+        "uk" | "ua" | "ukrainian" | "українська" => "Ukrainian",
+        "en" | "english" => "English",
+        "ru" | "russian" => "Russian",
+        "pl" | "polish" => "Polish",
+        "de" | "german" => "German",
+        "fr" | "french" => "French",
+        "es" | "spanish" => "Spanish",
+        _ => language.as_str(),
+    };
+    Some(format!(
+        "Always answer in {name}, regardless of the language of the utterance."
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,5 +171,17 @@ mod tests {
         let long = "ї".repeat(100);
         let prompt = build_user_prompt(&long, "q", 10, "");
         assert!(prompt.contains('q'));
+    }
+
+    #[test]
+    fn answer_language_instruction_pins_language() {
+        assert!(answer_language_instruction("auto").is_none());
+        assert!(answer_language_instruction("").is_none());
+        let uk = answer_language_instruction("uk").expect("uk instruction");
+        assert!(uk.contains("Ukrainian"));
+        let ua = answer_language_instruction("uk-UA").expect("uk-UA instruction");
+        assert!(ua.contains("Ukrainian"));
+        let en = answer_language_instruction("English").expect("English instruction");
+        assert!(en.contains("English"));
     }
 }

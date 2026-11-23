@@ -7,6 +7,22 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The project-context **AI** button now pauses or resumes sending the selected
+  folder to the LLM without clearing it. The choice persists across launches,
+  which makes quick questions faster when the full project block is not needed.
+- `llm.answer_language` pins the reply language (`uk`, `en`, `ru`, ...), while
+  `auto` keeps following the language of the latest utterance.
+
+### Fixed
+
+- The expected `failed to encode` message from whisper.cpp when a partial STT
+  job is preempted by a final is now logged at debug level instead of ERROR.
+  Real encoder failures still surface at ERROR.
+- A final STT job skipped as too short now clears the preempt flag, so it can no
+  longer abort subsequent partial jobs.
+
 ## [0.1.1] - 2026-11-23
 
 ### Added

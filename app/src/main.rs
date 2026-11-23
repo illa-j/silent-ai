@@ -236,9 +236,13 @@ fn run_headless(config: Config) -> anyhow::Result<()> {
         let cancel = CancellationToken::new();
         let source = CpalSource::new(config.audio.clone());
         let root = cancel.clone();
-        let project_context = load_saved_project(&config.project)
-            .map(|context| context.text)
-            .unwrap_or_default();
+        let project_context = if load_project_enabled() {
+            load_saved_project(&config.project)
+                .map(|context| context.text)
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
         let mut pipeline_task = tokio::spawn(pipeline::run(
             config,
             Box::new(source),
@@ -378,10 +382,29 @@ impl From<&ProjectContext> for ProjectInfo {
     }
 }
 
-#[derive(Default)]
 struct ProjectRuntime {
     info: Option<ProjectInfo>,
     context: String,
+    /// Whether the selected project block is sent to the LLM. Disabling it
+    /// keeps the folder selected, so it can be re-enabled without rescanning.
+    enabled: bool,
+}
+
+impl ProjectRuntime {
+    fn new(context: Option<ProjectContext>, enabled: bool) -> Self {
+        match context {
+            Some(context) => Self {
+                info: Some(ProjectInfo::from(&context)),
+                context: context.text,
+                enabled,
+            },
+            None => Self {
+                info: None,
+                context: String::new(),
+                enabled,
+            },
+        }
+    }
 }
 
 struct AppState {
@@ -396,11 +419,8 @@ struct AppState {
 }
 
 impl AppState {
-    fn new(config: Config, project: Option<ProjectContext>) -> Self {
-        let project = project.map_or_else(ProjectRuntime::default, |context| ProjectRuntime {
-            info: Some(ProjectInfo::from(&context)),
-            context: context.text,
-        });
+    fn new(config: Config, project: Option<ProjectContext>, project_enabled: bool) -> Self {
+        let project = ProjectRuntime::new(project, project_enabled);
         Self {
             config,
             commands: StdMutex::new(None),
@@ -413,12 +433,12 @@ impl AppState {
         }
     }
 
-    fn project_snapshot(&self) -> (Option<ProjectInfo>, String) {
+    fn project_snapshot(&self) -> (Option<ProjectInfo>, String, bool) {
         let guard = self
             .project
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        (guard.info.clone(), guard.context.clone())
+        (guard.info.clone(), guard.context.clone(), guard.enabled)
     }
 
     fn set_project(&self, context: Option<ProjectContext>) -> Option<ProjectInfo> {
@@ -432,6 +452,8 @@ impl AppState {
                     let info = ProjectInfo::from(&context);
                     guard.info = Some(info.clone());
                     guard.context = context.text;
+                    // Picking a folder is an explicit request to use it.
+                    guard.enabled = true;
                     (Some(info), guard.context.clone())
                 }
                 None => {
@@ -443,6 +465,32 @@ impl AppState {
         };
         let _ = self.send(Command::SetProjectContext(text));
         info
+    }
+
+    fn set_project_enabled(&self, enabled: bool) -> Result<(), String> {
+        let (context, has_project) = {
+            let mut guard = self
+                .project
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            guard.enabled = enabled;
+            (guard.context.clone(), guard.info.is_some())
+        };
+        if let Err(err) = save_project_enabled(enabled) {
+            tracing::warn!(%err, "cannot persist project enabled state");
+        }
+        if has_project {
+            // The pipeline may not be started yet; start_pipeline reads the
+            // flag from the state and passes the effective context.
+            if let Err(err) = self.send(Command::SetProjectContext(if enabled {
+                context
+            } else {
+                String::new()
+            })) {
+                tracing::warn!(%err, "cannot update project context in the running pipeline");
+            }
+        }
+        Ok(())
     }
 
     fn send(&self, command: Command) -> Result<(), String> {
@@ -469,6 +517,27 @@ fn notes_path() -> PathBuf {
 
 fn project_path_file() -> PathBuf {
     silent_ai_data_dir().join("project_path")
+}
+
+fn project_enabled_file() -> PathBuf {
+    silent_ai_data_dir().join("project_enabled")
+}
+
+fn load_project_enabled() -> bool {
+    std::fs::read_to_string(project_enabled_file())
+        .ok()
+        .map(|raw| !matches!(raw.trim(), "0" | "false" | "off"))
+        .unwrap_or(true)
+}
+
+fn save_project_enabled(enabled: bool) -> Result<(), String> {
+    let file = project_enabled_file();
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("cannot create project state dir: {err}"))?;
+    }
+    std::fs::write(&file, if enabled { b"1" } else { b"0" })
+        .map_err(|err| format!("cannot save project state: {err}"))
 }
 
 fn load_saved_project(config: &ProjectConfig) -> Option<ProjectContext> {
@@ -574,6 +643,9 @@ async fn set_project_folder(
         .map_err(|err| format!("project scan task failed: {err}"))?
         .map_err(|err| format!("cannot scan project: {err:#}"))?;
     save_project_path(&context.root)?;
+    if let Err(err) = save_project_enabled(true) {
+        tracing::warn!(%err, "cannot persist project enabled state");
+    }
     let info = ProjectInfo::from(&context);
     state.set_project(Some(context));
     Ok(info)
@@ -586,22 +658,30 @@ fn clear_project(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn set_project_enabled(enabled: bool, state: State<'_, AppState>) -> Result<bool, String> {
+    state.set_project_enabled(enabled)?;
+    Ok(enabled)
+}
+
 #[derive(Serialize)]
 struct Bootstrap {
     budgets: silent_ai_core::config::BudgetConfig,
     hotkeys: silent_ai_core::config::HotkeyConfig,
     ui: silent_ai_core::config::UiConfig,
     project: Option<ProjectInfo>,
+    project_enabled: bool,
 }
 
 #[tauri::command]
 fn bootstrap(state: State<'_, AppState>) -> Bootstrap {
-    let (project, _) = state.project_snapshot();
+    let (project, _, project_enabled) = state.project_snapshot();
     Bootstrap {
         budgets: state.config.budgets.clone(),
         hotkeys: state.config.hotkeys.clone(),
         ui: state.config.ui.clone(),
         project,
+        project_enabled,
     }
 }
 
@@ -697,7 +777,12 @@ fn start_pipeline(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(
     let error_tx = events_tx.clone();
     let pipeline_app = app.clone();
     let source = CpalSource::new(config.audio.clone());
-    let (_, project_context) = state.project_snapshot();
+    let (_, project_context, project_enabled) = state.project_snapshot();
+    let project_context = if project_enabled {
+        project_context
+    } else {
+        String::new()
+    };
     tauri::async_runtime::spawn(async move {
         if let Err(err) = pipeline::run(
             config,
@@ -780,7 +865,8 @@ fn configure_linux_backend(_ui: &UiConfig) -> Option<LinuxBackendNote> {
 
 fn run_gui(config: Config) -> anyhow::Result<()> {
     let project = load_saved_project(&config.project);
-    let state = AppState::new(config.clone(), project);
+    let project_enabled = load_project_enabled();
+    let state = AppState::new(config.clone(), project, project_enabled);
     let shortcut_config = config.hotkeys.clone();
     let ui_config = config.ui.clone();
     let stealth_config = config.stealth.clone();
@@ -800,7 +886,8 @@ fn run_gui(config: Config) -> anyhow::Result<()> {
             save_notes,
             pick_project_folder,
             set_project_folder,
-            clear_project
+            clear_project,
+            set_project_enabled
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {

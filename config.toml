@@ -193,6 +193,9 @@ api_key_env = "OPENCODE_API_KEY"
 max_tokens = 4096
 # Always respond, including to statements/explanations (not only questions).
 answer_all = true
+# Force the reply language. "auto" follows the language of the utterance;
+# "uk" always answers in Ukrainian, even for English or Russian questions.
+answer_language = "auto"
 temperature = 0.2
 # End-to-end request budget, including streaming.
 timeout_ms = 120000

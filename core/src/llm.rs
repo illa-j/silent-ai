@@ -9,7 +9,8 @@ use tokio_util::sync::CancellationToken;
 use crate::config::LlmConfig;
 use crate::error::{Result, SilentError};
 use crate::prompt::{
-    ANSWER_ALL_PROMPT, NO_QUESTION, SYSTEM_PROMPT, build_user_prompt, is_no_question,
+    ANSWER_ALL_PROMPT, NO_QUESTION, SYSTEM_PROMPT, answer_language_instruction, build_user_prompt,
+    is_no_question,
 };
 
 #[derive(Debug, Clone)]
@@ -149,11 +150,16 @@ impl LlmClient {
             self.config.max_history_chars,
             &request.project,
         );
-        let system_prompt = if self.config.answer_all {
+        let mut system_prompt = if self.config.answer_all {
             ANSWER_ALL_PROMPT
         } else {
             SYSTEM_PROMPT
-        };
+        }
+        .to_owned();
+        if let Some(instruction) = answer_language_instruction(&self.config.answer_language) {
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(&instruction);
+        }
         let mut body = json!({
             "model": self.config.model,
             "messages": [

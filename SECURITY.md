@@ -38,6 +38,7 @@ configures.
   downloaded.
 - Notes: `~/.local/share/silent-ai/notes.md` (or the platform equivalent).
 - Selected project path: `~/.local/share/silent-ai/project_path`.
+- Project-context on/off switch: `~/.local/share/silent-ai/project_enabled`.
 - Transcript log: `~/.local/share/silent-ai/transcripts/` when
   `logging.transcript = true`.
 - Logs: `~/.local/share/silent-ai/logs/`.
@@ -47,7 +48,8 @@ configures.
 ### Can leave the machine
 
 - **LLM provider:** the latest transcript, the configured history window, the
-  system prompt, and the text of the selected project folder are sent to
+  system prompt, and — when the project **AI** switch is on — the text of the
+  selected project folder are sent to
   `llm.base_url`. The folder scanner skips binaries, lockfiles, common build
   directories, and obvious secret files, but it cannot detect a secret
   hardcoded in a source file. Review the project before selecting it.

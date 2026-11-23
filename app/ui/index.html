@@ -270,9 +270,17 @@
   .project-badge {
     flex: 0 0 auto; font-size: 8px; font-weight: 700; letter-spacing: .06em;
     color: var(--faint); border: 1px solid var(--border); border-radius: 4px;
-    padding: 1px 3px;
+    padding: 1px 3px; cursor: pointer; background: transparent;
+    font-family: inherit; line-height: 1.2; appearance: none;
   }
+  .project-badge:hover:not(:disabled) { color: var(--text); }
+  .project-badge.off, .project-bar.active .project-badge.off {
+    color: var(--faint); border-color: var(--border); opacity: .55;
+  }
+  .project-badge:disabled { cursor: default; opacity: .4; }
   .project-bar.active .project-badge { color: var(--accent); border-color: rgba(101,214,255,.3); }
+  .project-bar.active.off { border-color: var(--border); background: rgba(255,255,255,.025); }
+  .project-bar.active.off .project-label { color: var(--muted); }
   .project-clear { width: 19px; height: 19px; padding: 0; font-size: 12px; flex: 0 0 auto; }
   .project-clear[hidden] { display: none; }
   .view[hidden], #notesEditor[hidden], #notesPreview[hidden], .note-format[hidden] { display: none; }
@@ -307,13 +315,13 @@
 
   <main>
     <div id="chatView" class="view chat-view">
-    <div class="project-bar" id="projectBar" title="Текст вибраної папки надсилається LLM як контекст">
+    <div class="project-bar" id="projectBar" title="Текст вибраної папки можна надсилати LLM як контекст (кнопка AI)">
       <button id="projectPickBtn" class="project-pick" title="Обрати папку проєкту">📁</button>
       <div class="project-text">
         <div class="project-label" id="projectLabel">Проєкт не вибрано</div>
         <div class="project-meta" id="projectMeta">контекст проєкту не надсилається</div>
       </div>
-      <span class="project-badge">AI</span>
+      <button id="projectToggleBtn" class="project-badge" type="button" title="Спочатку виберіть папку проєкту" disabled>AI</button>
       <button id="projectClearBtn" class="project-clear" title="Прибрати контекст проєкту" hidden>×</button>
     </div>
     <div id="chat" class="chat" aria-live="polite">
@@ -387,6 +395,7 @@
     hideBtn: el("hideBtn"), keyBtn: el("keyBtn"),
     projectBar: el("projectBar"), projectPickBtn: el("projectPickBtn"),
     projectLabel: el("projectLabel"), projectMeta: el("projectMeta"),
+    projectToggleBtn: el("projectToggleBtn"),
     projectClearBtn: el("projectClearBtn"),
     tabChat: el("tabChat"), tabNotes: el("tabNotes"), chatView: el("chatView"), notesView: el("notesView"),
     notesStatus: el("notesStatus"), notesEditBtn: el("notesEditBtn"), notesPreviewBtn: el("notesPreviewBtn"),
@@ -414,6 +423,7 @@
     notesDirty: false,
     notesTimer: null,
     project: null,
+    projectEnabled: true,
   };
 
   const fmt = (ms) => {
@@ -620,22 +630,47 @@
     showToast._t = setTimeout(() => ui.toast.classList.remove("show"), ms);
   }
 
-  function setProject(info) {
+  function setProject(info, enabled = state.projectEnabled) {
     state.project = info || null;
+    state.projectEnabled = !!enabled;
+    const hasProject = !!info;
+    ui.projectToggleBtn.disabled = !hasProject;
+    ui.projectToggleBtn.classList.toggle("off", hasProject && !state.projectEnabled);
+    ui.projectBar.classList.toggle("off", hasProject && !state.projectEnabled);
     if (!info) {
       ui.projectBar.classList.remove("active");
+      ui.projectBar.classList.remove("off");
       ui.projectLabel.textContent = "Проєкт не вибрано";
       ui.projectMeta.textContent = "контекст проєкту не надсилається";
       ui.projectBar.title = "Обрати папку проєкту, щоб надсилати її AI як контекст";
+      ui.projectToggleBtn.title = "Спочатку виберіть папку проєкту";
       ui.projectClearBtn.hidden = true;
       return;
     }
     const chars = info.chars >= 1000 ? `${(info.chars / 1000).toFixed(1)}k` : String(info.chars);
     ui.projectBar.classList.add("active");
     ui.projectLabel.textContent = info.name || "Проєкт";
-    ui.projectMeta.textContent = `${info.files} файлів · ${chars} символів${info.truncated ? " · обрізано" : ""} · надсилається AI`;
+    ui.projectMeta.textContent = state.projectEnabled
+      ? `${info.files} файлів · ${chars} символів${info.truncated ? " · обрізано" : ""} · надсилається AI`
+      : `${info.files} файлів · ${chars} символів${info.truncated ? " · обрізано" : ""} · контекст вимкнено`;
     ui.projectBar.title = info.path || "";
+    ui.projectToggleBtn.title = state.projectEnabled
+      ? "Контекст проєкту надсилається AI — натисніть, щоб вимкнути"
+      : "Контекст проєкту вимкнено — натисніть, щоб надсилати";
     ui.projectClearBtn.hidden = false;
+  }
+
+  async function toggleProject() {
+    if (!state.project) return;
+    const next = !state.projectEnabled;
+    try {
+      const enabled = await invoke("set_project_enabled", { enabled: next });
+      setProject(state.project, !!enabled);
+      showToast(enabled ? "Контекст проєкту увімкнено" : "Контекст проєкту вимкнено");
+    } catch (err) {
+      ui.error.textContent = String(err);
+      showToast("Не вдалося змінити режим проєкту", 2200, true);
+    }
   }
 
   async function pickProject() {
@@ -644,7 +679,7 @@
       if (!path) return;
       ui.projectMeta.textContent = "сканую папку…";
       const info = await invoke("set_project_folder", { path });
-      setProject(info);
+      setProject(info, true);
       showToast(`Проєкт: ${info.name} · ${info.files} файлів`);
     } catch (err) {
       setProject(state.project);
@@ -888,7 +923,7 @@
     }
     state.model = payload.model || "";
     state.backend = payload.backend || "";
-    if ("project" in payload) setProject(payload.project);
+    if ("project" in payload) setProject(payload.project, payload.project_enabled !== false);
     const opacity = payload.ui?.opacity;
     if (typeof opacity === "number" && opacity > 0.2 && opacity <= 1) {
       document.getElementById("app").style.opacity = String(opacity);
@@ -1100,6 +1135,7 @@
   });
 
   ui.projectPickBtn.addEventListener("click", pickProject);
+  ui.projectToggleBtn.addEventListener("click", toggleProject);
   ui.projectClearBtn.addEventListener("click", clearProject);
 
   ui.keyBtn.addEventListener("click", showManual);

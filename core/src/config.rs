@@ -268,6 +268,9 @@ pub struct LlmConfig {
     /// Always answer the latest utterance, even when it is a statement or an
     /// explanation. When false, the model may return NO_QUESTION.
     pub answer_all: bool,
+    /// Force a reply language. `"auto"` follows the utterance; a code such as
+    /// `"uk"`, `"en"`, or `"ru"` pins the answer language.
+    pub answer_language: String,
     pub temperature: f32,
     pub timeout_ms: u64,
     pub connect_timeout_ms: u64,
@@ -321,6 +324,7 @@ impl Default for LlmConfig {
             api_key_file: default_api_key_file(),
             max_tokens: 4096,
             answer_all: true,
+            answer_language: "auto".to_owned(),
             temperature: 0.2,
             timeout_ms: 120_000,
             connect_timeout_ms: 2_500,
@@ -635,6 +639,10 @@ impl Config {
 
     pub fn normalize(&mut self) {
         self.llm.base_url = self.llm.base_url.trim().trim_end_matches('/').to_owned();
+        self.llm.answer_language = self.llm.answer_language.trim().to_ascii_lowercase();
+        if self.llm.answer_language.is_empty() {
+            self.llm.answer_language = "auto".to_owned();
+        }
         self.audio.device = self.audio.device.trim().to_owned();
         self.stt.whisper.model = self.stt.whisper.model.trim().to_owned();
         self.stt.whisper.language = self.stt.whisper.language.trim().to_owned();
@@ -930,6 +938,14 @@ mod tests {
     }
 
     #[test]
+    fn empty_answer_language_normalizes_to_auto() {
+        let mut config = Config::default();
+        config.llm.answer_language = "  ".to_owned();
+        config.normalize();
+        assert_eq!(config.llm.answer_language, "auto");
+    }
+
+    #[test]
     fn rejects_literal_key_in_api_key_env() {
         let mut config = Config::default();
         config.llm.api_key_env = "oc_sk_deadbeef".to_owned();
@@ -1010,6 +1026,7 @@ mod tests {
         assert_eq!(config.stt.whisper.language, defaults.stt.whisper.language);
         assert_eq!(config.stt.whisper.gpu, defaults.stt.whisper.gpu);
         assert_eq!(config.llm.answer_all, defaults.llm.answer_all);
+        assert_eq!(config.llm.answer_language, defaults.llm.answer_language);
         assert_eq!(config.llm.max_tokens, defaults.llm.max_tokens);
         assert_eq!(config.vad.silence_ms, defaults.vad.silence_ms);
         assert_eq!(config.detector.send_all, defaults.detector.send_all);
