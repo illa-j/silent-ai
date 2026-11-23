@@ -54,6 +54,12 @@ First public release.
 - Documentation for installation, configuration, audio capture, architecture,
   privacy, security, contribution, and release management.
 
+### Fixed
+
+- A missing default API-key file no longer prevents startup when no API key is
+  configured at all, so local OpenAI-compatible endpoints such as Ollama work
+  out of the box.
+
 ### Known limitations
 
 - The first release is live-verified on Fedora 44 / KDE Plasma 6.8 / Wayland;

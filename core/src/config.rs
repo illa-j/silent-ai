@@ -330,7 +330,15 @@ impl LlmConfig {
         }
 
         if let Some(path) = &self.api_key_file {
-            return read_api_key_file(path).map(Some);
+            match read_api_key_file(path) {
+                Ok(key) => return Ok(Some(key)),
+                // A default key file is allowed to be absent when no API key is
+                // configured at all (for example a local Ollama endpoint).
+                Err(_) if env_problem.is_none() && !expand_tilde(path).exists() => {
+                    return Ok(None);
+                }
+                Err(err) => return Err(err),
+            }
         }
 
         match env_problem {
@@ -915,6 +923,14 @@ mod tests {
         assert_eq!(key, "test-key-123");
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn missing_default_key_file_is_ok_without_env() {
+        let mut config = Config::default();
+        config.llm.api_key_env.clear();
+        config.llm.api_key_file = Some(PathBuf::from("/nonexistent/silent-ai/default-key"));
+        assert_eq!(config.api_key().expect("no key required"), None);
     }
 
     #[test]
